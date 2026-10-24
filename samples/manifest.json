@@ -1,0 +1,137 @@
+{
+  "schema_version": 1,
+  "release": "8.1",
+  "system_name": "Financial Report Screening and Analysis System",
+  "status": "ready",
+  "notice": "Historical, model-assisted research examples based on official filings. Automated checks and selected source-figure spot checks passed; readers should verify financial facts and inferences against the original filings.",
+  "samples": [
+    {
+      "id": "600519-2025h1-zh",
+      "company_name": "贵州茅台",
+      "ticker": "600519",
+      "market": "A",
+      "report_year": 2025,
+      "report_type": "半年度报告",
+      "period": "2025-01-01/2025-06-30",
+      "language": "zh",
+      "path": "a-600519-2025h1-zh.md",
+      "status": "ready",
+      "generated_at": "2026-10-15T21:25:10+08:00",
+      "validated_at": "2026-10-15T23:43:41+08:00",
+      "source_id": "CNINFO-1224462930",
+      "source_url": "https://static.cninfo.com.cn/finalpage/2025-08-13/1224462930.PDF",
+      "source_disclosed_at": "2025-08-13",
+      "source_document_language": "zh",
+      "original_source_title": "贵州茅台2025年半年度报告",
+      "provenance": {
+        "provider": "CNINFO",
+        "announcement_id": "1224462930",
+        "qa_artifact": "qa_v81/a_zh/results.json",
+        "artifact_sha256": "5d4e0b2440f830553de903698a84c750384f711f5f761c68c09f555e7cb71952",
+        "validation_scope": [
+          "seven-chapter structure",
+          "citation-page availability",
+          "selected source-figure and accounting-scope checks",
+          "Chinese source-language checks"
+        ],
+        "manual_financial_review_completed": false
+      }
+    },
+    {
+      "id": "600519-2025h1-en",
+      "company_name": "Kweichow Moutai",
+      "ticker": "600519",
+      "market": "A",
+      "report_year": 2025,
+      "report_type": "Interim Report",
+      "period": "2025-01-01/2025-06-30",
+      "language": "en",
+      "path": "a-600519-2025h1-en.md",
+      "status": "ready",
+      "generated_at": "2026-10-15T23:20:26+08:00",
+      "validated_at": "2026-10-15T23:43:41+08:00",
+      "source_id": "CNINFO-1224462930",
+      "source_url": "https://static.cninfo.com.cn/finalpage/2025-08-13/1224462930.PDF",
+      "source_disclosed_at": "2025-08-13",
+      "source_document_language": "zh",
+      "original_source_title": "贵州茅台2025年半年度报告",
+      "provenance": {
+        "provider": "CNINFO",
+        "announcement_id": "1224462930",
+        "qa_artifact": "qa_v81/a_en/results.json",
+        "artifact_sha256": "e5749cc0e02f5b660a6c62298e02cff14d211224c2005a2103db93ac93fc8665",
+        "validation_scope": [
+          "seven-chapter structure",
+          "citation-page availability",
+          "selected source-figure and accounting-scope checks",
+          "English-language export checks"
+        ],
+        "manual_financial_review_completed": false
+      }
+    },
+    {
+      "id": "00700.hk-2025h1-zh",
+      "company_name": "腾讯控股",
+      "ticker": "00700.HK",
+      "market": "HK",
+      "report_year": 2025,
+      "report_type": "半年度报告",
+      "period": "2025-01-01/2025-06-30",
+      "language": "zh",
+      "path": "hk-00700-hk-2025h1-zh.md",
+      "status": "ready",
+      "generated_at": "2026-10-15T20:10:05+08:00",
+      "validated_at": "2026-10-15T23:43:41+08:00",
+      "source_id": "HKEX-11809634",
+      "source_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2025/0826/2025082600677_c.pdf",
+      "source_disclosed_at": "2025-08-26",
+      "source_document_language": "zh",
+      "original_source_title": "中期報告 2025",
+      "provenance": {
+        "provider": "HKEX",
+        "announcement_id": "11809634",
+        "qa_artifact": "qa_v81/hk_zh/results.json",
+        "artifact_sha256": "8e9bed1c146bc983530b804eac1c348d7ad986186302fd4dfb6569bef2a76c5c",
+        "validation_scope": [
+          "seven-chapter structure",
+          "citation-page availability",
+          "selected source-figure and accounting-scope checks",
+          "Chinese source-language checks"
+        ],
+        "manual_financial_review_completed": false
+      }
+    },
+    {
+      "id": "00700.hk-2025h1-en",
+      "company_name": "Tencent",
+      "ticker": "00700.HK",
+      "market": "HK",
+      "report_year": 2025,
+      "report_type": "Interim Report",
+      "period": "2025-01-01/2025-06-30",
+      "language": "en",
+      "path": "hk-00700-hk-2025h1-en.md",
+      "status": "ready",
+      "generated_at": "2026-10-15T23:20:27+08:00",
+      "validated_at": "2026-10-15T23:43:41+08:00",
+      "source_id": "HKEX-11809634",
+      "source_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2025/0826/2025082600677_c.pdf",
+      "source_disclosed_at": "2025-08-26",
+      "source_document_language": "zh",
+      "original_source_title": "中期報告 2025",
+      "provenance": {
+        "provider": "HKEX",
+        "announcement_id": "11809634",
+        "qa_artifact": "qa_v81/hk_en/results.json",
+        "artifact_sha256": "251ae315c37b5b9cdc56c7b356c697c2e4152b0d805b0d9a93957bab2debb2a0",
+        "validation_scope": [
+          "seven-chapter structure",
+          "citation-page availability",
+          "selected source-figure and accounting-scope checks",
+          "English-language export checks"
+        ],
+        "manual_financial_review_completed": false
+      }
+    }
+  ]
+}
