@@ -1,5 +1,7 @@
 # Project motivation and development
 
+[简体中文](PROJECT_NOTES.zh-CN.md) · [Project home](../README.md)
+
 ## Motivation
 
 The project grew from exposure to investment research and the repetitive work of reviewing company financial reports. Its goal is to help a researcher find official filings, compare operating changes and produce an initial evidence-linked brief while keeping uncertainty visible.

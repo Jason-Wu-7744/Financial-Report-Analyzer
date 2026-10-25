@@ -1,5 +1,7 @@
 # Validation of the public snapshot
 
+[简体中文](VALIDATION.zh-CN.md) · [Project home](../README.md)
+
 The public-source preparation was checked on 25 October 2026 (Asia/Shanghai), using Python 3.12.2 and the dependency environment matching the pinned Streamlit and OpenAI client versions.
 
 ## Regression result

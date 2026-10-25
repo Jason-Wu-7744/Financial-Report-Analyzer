@@ -1,6 +1,6 @@
 # 财报筛选与分析系统
 
-[English](README.md) · [技术架构](docs/ARCHITECTURE.md) · [项目开发说明](docs/PROJECT_NOTES.md)
+[English](README.md) · [技术架构](docs/ARCHITECTURE.zh-CN.md) · [项目开发说明](docs/PROJECT_NOTES.zh-CN.md) · [研究方法](docs/RESEARCH_METHOD.zh-CN.md) · [验证说明](docs/VALIDATION.zh-CN.md)
 
 面向 A 股与港股上市公司的双语财报研究工作台。系统将官方财报检索、PDF 证据提取、经营快评、七章研究简报、独立风险核验和文件导出连接起来。
 
@@ -45,5 +45,7 @@ python -m pytest tests -q
 ```
 
 ## 使用边界
+
+项目说明和已保存样例提供中英阅读入口。应用提示词、代码注释及来源证据测试夹具保留原语言，尚未逐项双语化；文档覆盖与双语界面/导出是不同范围。
 
 这是一套研究辅助原型。PDF 抽取、证据选择和模型推理都可能出错；重要数字、引用和结论需要复核。公开仓库不包含原部署密码、真实 API 密钥、私人论文、服务器脚本及完整下载财报语料。当前登录模块适合本地评审，不应直接作为公开多用户服务的身份系统。本项目不构成投资建议。

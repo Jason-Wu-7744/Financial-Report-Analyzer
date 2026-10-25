@@ -1,5 +1,7 @@
 # Architecture and engineering decisions
 
+[简体中文](ARCHITECTURE.zh-CN.md) · [Project home](../README.md)
+
 ## Workflow
 
 ```mermaid

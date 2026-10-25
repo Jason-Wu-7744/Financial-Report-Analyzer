@@ -1,5 +1,7 @@
 # Financial Report Screening and Analysis System · v8.1
 
+[简体中文](RESEARCH_METHOD.zh-CN.md) · [Project home](../README.md)
+
 **财报筛选与分析系统**
 
 A bilingual research workbench for Mainland China A-share and Hong Kong listed companies. It connects official filing discovery, concise operating summaries, evidence-based research briefs and structured risk review in one workflow.

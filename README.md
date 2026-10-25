@@ -96,6 +96,8 @@ The suite uses test-only accounts and mocked model responses. It covers evidence
 
 ## Development and limitations
 
+Project documentation and the saved sample reports have English and Chinese reading options. The versioned application prompts, source comments and source-evidence test fixtures retain their original language; they are not all bilingual. The bilingual UI and export behavior are separate from documentation coverage.
+
 Developed using AI-assisted coding tools, including Codex and Cursor. [Project notes](docs/PROJECT_NOTES.md) describe the motivation, the development approach and the public-release changes. The repository makes the implementation and tests available for inspection rather than claiming unaided authorship of every line.
 
 Extraction can miss scanned content, layouts or notes. A valid citation page does not prove an inference. A correct displayed equation does not establish correct accounting classification. Outputs need review against original filings and do not constitute investment advice.
