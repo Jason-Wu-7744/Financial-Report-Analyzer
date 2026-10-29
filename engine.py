@@ -3465,8 +3465,8 @@ def summarize_one_fast(
     disclosure_date: str = "",
     match_message: str = "",
 ) -> dict:
-    market_metrics = None if is_hk_stock_code(row.stock_code) else load_market_metrics(row.stock_code, report_year, report_type, cache_dir)
-    financials = reconcile_metrics_with_market(KeyFinancialMetrics(), market_metrics)
+    market_metrics = None
+    financials = KeyFinancialMetrics()
     payload = {
         "stock_code": row.stock_code,
         "company_name": row.company_name,
@@ -3506,8 +3506,10 @@ def summarize_one_fast(
         payload["substance"] = "业绩实质无法判断"
         payload["screening_unchecked"] = list(empty_fast_result("")["screening_unchecked"])
         payload["screening_note"] = "未匹配到全文，19项快速排雷未完成"
+        payload.update(status="失败", retryable=True, source_unavailable=True)
         return payload
     try:
+        market_metrics = None if is_hk_stock_code(row.stock_code) else load_market_metrics(row.stock_code, report_year, report_type, cache_dir)
         pages = extract_pdf_pages(pdf, cache_dir / "pdf_text")
         source_issues = validate_report_source(pages, row, report_type)
         if is_hk_stock_code(row.stock_code):

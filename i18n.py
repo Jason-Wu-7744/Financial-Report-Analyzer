@@ -830,7 +830,7 @@ class EnglishTranslator:
                 self.fixed_fact_fallback_calls+=1
                 single_instruction=(instruction.replace('requested prose_spans','single requested span').replace(
                     'Return one JSON object mapping every exact prose span ID to its translated STRING. ',
-                    'Return exactly {"text":"translated fragment"} for the SINGLE requested span. ')+
+                    'Return exactly one JSON object {"text":"translated fragment"} for the SINGLE requested span. ')+
                     'Do not return an ID mapping. Copy every marker inside this span, not its expanded glossary meaning. '
                     'The prior errors were: '+', '.join(last_errors.get(key,[]))+'.')
                 response=client.chat.completions.create(model=self.model,temperature=0,max_tokens=1500,
@@ -953,7 +953,7 @@ class EnglishTranslator:
                 'Keep factual_markers (figures, currencies, units and references) in source order. Terminology/qualifier markers may '
                 'move for English grammar only inside their original paragraph, heading or table cell; never move a claim into another cell. '
                 'Keep the same Markdown headings, table rows and cells; never merge a table row with surrounding prose. Do not create numeric literals. '
-                'Return exactly {"text":"the complete English translation with every supplied __KEEP_...__ marker"}. '
+                'Return a JSON object exactly {"text":"the complete English translation with every supplied __KEEP_...__ marker"}. '
                 'The text field must be a string, not an array or segments object. Text must contain no Chinese characters. '
                 'Copy every supplied marker exactly once into text, including every factual_marker. '
                 'Use the glossary only to understand marker meaning; do not substitute its values for markers.'
@@ -1348,6 +1348,9 @@ def localized_generation(function):
     def run(*args, **kwargs):
         result = function(*args, **kwargs)
         if not english(): return result
+        from source_status import source_unavailable, localize_source_failure
+        if source_unavailable(result):
+            return localize_source_failure(result)
         if kwargs.get('test_mode'):
             return english_demo_result(result)
         canonical_result = canonical_translation_result(result)

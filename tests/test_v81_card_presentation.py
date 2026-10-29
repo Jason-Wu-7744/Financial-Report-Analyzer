@@ -82,7 +82,7 @@ def test_card_ui_keeps_company_ticker_and_separate_summary_and_risk_scopes(tmp_p
     assert "@000056" in at.chat_input[0].placeholder
     at.chat_input[0].set_value("@000056 Explain the earnings drivers.").run()
     assert not at.exception
-    assert at.session_state["llm_active_company_key"] == "000056"
+    assert at.session_state["llm_active_company_key"].startswith("000056|")
     assert "000056" in at.session_state["llm_chat_messages"][-1]["company"]
 
     # Resume wording only applies after an actual report attempt was saved.

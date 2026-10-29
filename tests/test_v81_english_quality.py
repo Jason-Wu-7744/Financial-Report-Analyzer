@@ -711,7 +711,7 @@ def test_last_prose_span_has_one_single_text_recovery_without_changing_facts(mon
     assert translator.fixed_fact_fallback_calls==3 and create.call_count==3
     instruction=create.call_args.kwargs['messages'][0]['content']
     assert 'mapping every exact prose span ID' not in instruction
-    assert 'Return exactly {"text"' in instruction
+    assert 'JSON object {"text"' in instruction
 
 
 def test_expanded_exact_nonfactual_qualification_is_restored_without_api():

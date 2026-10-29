@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import hashlib
 import json
 import os
 import re
@@ -16,9 +17,14 @@ from pathlib import Path
 import pandas as pd
 import streamlit as native_st
 from ui_i18n import st, company_display_name, company_display_label
+from chat_state import select_chat_company, open_chat, close_chat, save_chat, chat_scope
+from chat_context import report_chat_key, resolve_chat_context
+from chat_panel import render_chat_drawer
+from chat_translation import ensure_english_chat_reply
 from company_list_ui import render_company_list
 from card_presentation import summary_status_badge_html, preliminary_risk_html
-from i18n import configure, english, translate, EnglishTranslator, localized_generation, localize_artifact, TranslationError
+from source_status import source_unavailable, source_failure_message, download_failure_for
+from i18n import configure, english, translate, EnglishTranslator, localized_generation, localize_artifact, TranslationError, static_text, translation_api_options
 from openai import OpenAI
 try:
     import httpx2 as httpx_runtime
@@ -148,6 +154,7 @@ def select_language():
 
 
 def change_language():
+    close_chat(st.session_state)
     native_st.query_params["lang"] = st.session_state.ui_language
     # The next rerun reloads the matching language's saved results.
     configure(st.session_state.ui_language, st.session_state.get("_translator"))
@@ -392,6 +399,7 @@ def persist_screenings() -> None:
 
 
 def open_research(research_id: str) -> None:
+    close_chat(st.session_state)
     screen = research_store.load_screen(ROOT, current_account(), research_id)
     st.session_state.view = "research"
     st.session_state.research_id = research_id
@@ -756,7 +764,7 @@ def render_screen_panel() -> None:
                     missing_reports: list[str] = []
                     for code, name in companies:
                         announcement = None
-                        if market_mode == HK_SHARE and source_mode == HK_AUTO_SOURCE:
+                        if source_mode in AUTO_SOURCES:
                             candidates = search_reports_for_company(
                                 code,
                                 name,
@@ -765,10 +773,14 @@ def render_screen_panel() -> None:
                                 cninfo_cache,
                             )
                             if not candidates:
-                                missing_reports.append(
-                                    f"{code} {name}：港交所尚未发布{int(report_year)}年正式{report_type}；"
-                                    "业绩公告不作为替代。"
-                                )
+                                if english():
+                                    missing_reports.append(source_failure_message({
+                                        'stock_code': code, 'report_year': int(report_year),
+                                        'report_type': report_type}, is_english=True))
+                                else:
+                                    source = '港交所' if market_mode == HK_SHARE else '巨潮资讯'
+                                    missing_reports.append(f"{code} {name}：{source}未找到{int(report_year)}年正式{report_type}全文。"
+                                                           "请核对报告期年份/类型；可改选已披露的报告或上传原版 PDF，不会自动替换为往年报告。")
                                 continue
                             announcement = candidates[0]
                         row = {
@@ -891,6 +903,9 @@ def collect_pdfs_for_group(
             pdfs, _records = download_reports_for_rows(
                 working_rows, year, rtype, cninfo_cache, progress=update_download
             )
+        for row in working_rows:
+            error_key = worklist_key(row.stock_code, rtype, year)
+            st.session_state.setdefault('_download_failures', {})[error_key] = download_failure_for(_records, row.stock_code)
         download_bar.progress(1.0, text=f"{label} 下载完成：{len(pdfs)}/{len(working_rows)} 份")
         return pdfs, working_rows
     if source_mode == "ZIP 压缩包":
@@ -953,6 +968,8 @@ def run_quick_pass() -> bool:
                 code = str(record["证券代码"])
                 company_row = row_by_code.get(code) or CompanyRow(done + 1, code, str(record["证券名称"]), {})
                 pdf, match_message = match_pdf(company_row, pdfs)
+                if not pdf:
+                    match_message = st.session_state.get('_download_failures', {}).get(worklist_key(code, rtype, year)) or match_message
                 summary = summarize_one_fast(
                     company_row,
                     pdf,
@@ -971,8 +988,13 @@ def run_quick_pass() -> bool:
                 status_box.info(summary.get("headline") or summary.get("message") or "完成")
         st.session_state.summaries = summaries
         persist_summaries()
-        if summaries:
-            st.success(f"快速提炼完成：{len(summaries)} 家。")
+        completed_n = sum(not source_unavailable(item) and item.get('status') != '失败' for item in summaries)
+        if completed_n:
+            st.success(f"Quick analysis generated for {completed_n} of {len(summaries)} companies." if english()
+                       else f"快速提炼完成：{completed_n}/{len(summaries)} 家。")
+        elif summaries:
+            st.error("No summary was generated. See the source or generation error below." if english()
+                     else "未生成摘要。请查看下方的财报来源或生成错误，并核对报告期后重试。")
         else:
             st.error("没有形成任何快筛结果。")
     finally:
@@ -1006,7 +1028,7 @@ def _deep_pending_items() -> list[dict]:
     screenings = {_deep_result_key(item): item for item in (st.session_state.get("screenings") or [])}
     return [
         item for item in (st.session_state.get("summaries") or [])
-        if item.get("selected") and not (
+        if item.get("selected") and not source_unavailable(item) and not (
             _valid_comment(comments.get(_deep_result_key(item)))
             and _valid_screening(screenings.get(_deep_result_key(item)))
         )
@@ -1021,7 +1043,7 @@ def current_job() -> dict:
 
 
 def start_deep_background() -> None:
-    chosen = [item for item in (st.session_state.summaries or []) if item.get("selected")]
+    chosen = [item for item in (st.session_state.summaries or []) if item.get("selected") and not source_unavailable(item)]
     if not chosen:
         st.error("请先勾选至少一家有意思的公司。")
         return
@@ -1039,7 +1061,7 @@ def start_deep_background() -> None:
 
 
 def run_deep_pass() -> None:
-    chosen = [item for item in (st.session_state.summaries or []) if item.get("selected")]
+    chosen = [item for item in (st.session_state.summaries or []) if item.get("selected") and not source_unavailable(item)]
     if not chosen:
         st.error("请先在快筛结果中勾选至少一家公司。")
         return
@@ -1219,8 +1241,8 @@ def pick_checkbox_key(item: dict, index: int) -> str:
 
 def apply_pick_selection(selected: bool) -> None:
     for index, item in enumerate(st.session_state.summaries or []):
-        item["selected"] = selected
-        st.session_state[pick_checkbox_key(item, index)] = selected
+        item["selected"] = selected and not source_unavailable(item)
+        st.session_state[pick_checkbox_key(item, index)] = item["selected"]
     persist_summaries()
 
 
@@ -1245,6 +1267,10 @@ def render_pick_card(index: int, item: dict) -> bool:
     substance = re.sub(r"\s*\n+\s*", "", substance)
     changed = False
     widget_key = pick_checkbox_key(item, index)
+    missing_source = source_unavailable(item)
+    if missing_source:
+        item['selected'] = selected = False
+        st.session_state[widget_key] = False
     if widget_key not in st.session_state:
         st.session_state[widget_key] = selected
     with st.container(border=True):
@@ -1253,6 +1279,7 @@ def render_pick_card(index: int, item: dict) -> bool:
             checked = st.checkbox(
                 "选择",
                 key=widget_key,
+                disabled=missing_source,
                 label_visibility="collapsed",
             )
         with title_col:
@@ -1262,22 +1289,21 @@ def render_pick_card(index: int, item: dict) -> bool:
             )
         with ask_col:
             help_text = f"Ask the research assistant about {company_display_label(name, code)}" if english() else f"让右侧助手分析 {name}"
-            if st.button("👉", key=f"llm_pick_{index}_{code}_{name}", help=help_text, **STRETCH):
-                st.session_state.llm_chat_messages = []
-                st.session_state.llm_pending_prompt = ""
-                st.session_state.llm_last_status = ""
-                st.session_state.llm_ignore_prompt_once = ""
-                st.session_state.pop("llm_chat_input", None)
-                st.session_state.llm_drawer_open = True
-                st.session_state.llm_active_company_key = code or name
-                # Ticker mentions survive both language changes and multiword
-                # English issuer names when the chat parser selects context.
-                st.session_state.llm_chat_prefill = f"@{code or name} "
-                st.rerun()
+            with native_st.container(key=f"company_chat_entry_{index}"):
+                if native_st.button("", icon=":material/arrow_forward:", key=f"llm_pick_{index}_{code}_{name}", help=help_text, disabled=missing_source, **STRETCH):
+                    select_chat_company(st.session_state, report_chat_key(item))
+                    st.session_state.pop("llm_chat_input", None)
+                    st.session_state.llm_chat_prefill = f"@{code or name} "
+                    st.rerun()
         if bool(checked) != selected:
             item["selected"] = bool(checked)
             selected = bool(checked)
             changed = True
+        if missing_source:
+            native_st.error(source_failure_message(item, is_english=english()))
+            native_st.caption('Return to Edit Company List to choose a disclosed period or upload the original filing.' if english()
+                              else '返回“编辑公司名单”，选择已披露的报告期，或上传原版财报后重新提炼。')
+            return changed
         anchor = "pick-card-anchor selected" if selected else "pick-card-anchor"
         st.markdown(f'<div class="{anchor}"></div>', unsafe_allow_html=True)
         st.markdown(
@@ -1504,22 +1530,14 @@ def render_comments_panel() -> None:
 
 
 def _summary_key(item: dict) -> str:
-    return str(item.get("stock_code") or item.get("company_name") or "").strip()
+    return report_chat_key(item)
 
 
 def _active_summary_from_message(message: str) -> dict:
-    token = ""
-    found = re.search(r"@([^\s，,。；;：:]+)", message or "")
-    if found:
-        token = found.group(1).strip()
-    if not token:
-        token = str(st.session_state.get("llm_active_company_key") or "").strip()
-    for item in st.session_state.get("summaries") or []:
-        name = str(item.get("company_name") or "").strip()
-        code = str(item.get("stock_code") or "").strip()
-        if token and (token == name or token == code or token in name or token in code):
-            return item
-    return {}
+    summary, _ = resolve_chat_context(st.session_state.get("summaries") or [],
+                                     str(st.session_state.get("llm_active_company_key") or ""),
+                                     message, company_display_name)
+    return summary
 
 
 def _resolve_summary_pdf(summary: dict) -> Path | None:
@@ -1550,7 +1568,8 @@ def _llm_context_for_message(message: str) -> tuple[str, str, str]:
     summary = _active_summary_from_message(message)
     if not summary:
         return "", "", ""
-    st.session_state.llm_active_company_key = _summary_key(summary)
+    if st.session_state.get("llm_active_company_key") != _summary_key(summary):
+        select_chat_company(st.session_state, _summary_key(summary))
     hk_mode = str(summary.get('stock_code') or '').upper().endswith('.HK')
     currency = str(summary.get('currency') or ('CNY' if not hk_mode else '未核验原币'))
     amount_unit = f'亿{currency}'
@@ -1573,8 +1592,28 @@ def _llm_context_for_message(message: str) -> tuple[str, str, str]:
         "业绩实质": summary.get("substance") or summary.get("summary"),
         "快速排雷": summary.get("screening_note"),
     }
-    parts = ["当前选中公司快筛材料：", json.dumps(facts, ensure_ascii=False, default=str)]
-    source_note = "已读取快筛卡片材料。"
+    if english():
+        english_parent = 'Profit attributable to ordinary shareholders' if summary.get('parent_profit_basis') == 'ordinary_shareholders' else 'Net profit attributable to owners of the parent'
+        english_adjusted = 'Issuer-defined adjusted profit (non-GAAP)' if hk_mode else 'Net profit excluding non-recurring items'
+        unit = f'{currency} hundred million'
+        facts = {
+            'Ticker': summary.get('stock_code'),
+            'Company': company_display_name(str(summary.get('company_name') or ''), str(summary.get('stock_code') or '')),
+            'Filing type': static_text(str(summary.get('report_type') or '')),
+            'Reporting year': summary.get('report_year'), 'Disclosure date': summary.get('disclosure_date'),
+            f'Revenue ({unit})': facts[f'营业总收入_{amount_unit}'],
+            f'{english_parent} ({unit})': facts[f'{parent_label}_{amount_unit}'],
+            f'{english_adjusted} ({unit})': facts[f'{adjusted_label}_{amount_unit}'],
+            'Revenue growth (%)': summary.get('revenue_yoy_pct'),
+            f'{english_parent} growth (%)': summary.get('parent_profit_yoy_pct'),
+            f'{english_adjusted} growth (%)': summary.get('adjusted_profit_yoy_pct'),
+            'Principal business': summary.get('business'),
+            'Earnings highlights': summary.get('driver') or summary.get('headline'),
+            'Earnings quality': summary.get('substance') or summary.get('summary'),
+            'Preliminary risk screening': summary.get('screening_note'),
+        }
+    parts = ['Selected company summary:' if english() else "当前选中公司快筛材料：", json.dumps(facts, ensure_ascii=False, default=str)]
+    source_note = "Summary context loaded." if english() else "已读取快筛卡片材料。"
     pdf = _resolve_summary_pdf(summary)
     if pdf:
         try:
@@ -1594,11 +1633,13 @@ def _llm_context_for_message(message: str) -> tuple[str, str, str]:
                 used += len(chunk)
             if chunks:
                 parts.append("当前选中公司财报可提取文本：" + "".join(chunks))
-                source_note = f"已读取财报 PDF：{pdf.name}，本轮最多提供 {limit:,} 字。"
+                source_note = (f"Filing PDF evidence loaded; up to {limit:,} characters supplied for this reply."
+                               if english() else f"已读取财报 PDF：{pdf.name}，本轮最多提供 {limit:,} 字。")
         except Exception as error:
-            source_note = f"财报 PDF 抽取失败，已退回快筛材料：{type(error).__name__}: {error}"
+            source_note = (f"Filing PDF extraction failed ({type(error).__name__}); using summary context."
+                           if english() else f"财报 PDF 抽取失败，已退回快筛材料：{type(error).__name__}")
     else:
-        source_note = "未找到对应财报 PDF，已退回快筛卡片材料。"
+        source_note = "Filing PDF unavailable; using summary context." if english() else "未找到对应财报 PDF，已退回快筛卡片材料。"
     display = company_display_label(str(summary.get('company_name') or ''), str(summary.get('stock_code') or ''))
     return "\n".join(parts), source_note, display
 
@@ -1607,6 +1648,8 @@ def build_llm_messages(message: str) -> tuple[list[dict], str, str]:
     context, source_note, display = _llm_context_for_message(message)
     history = []
     for item in list(st.session_state.get("llm_chat_messages") or [])[-24:]:
+        if item.get("error"):
+            continue
         role = str(item.get("role") or "")
         if role == "user":
             content = str(item.get("content") or item.get("question") or "").strip()
@@ -1633,14 +1676,21 @@ def build_llm_messages(message: str) -> tuple[list[dict], str, str]:
             "You are the Financial Report Screening and Analysis System assistant. Answer entirely in English, including "
             "headings, company names and quoted evidence (label quotations as translations). "
             "Use only the supplied company context when present, and cite its figures accurately. "
+            "Use the English field labels and company name in the supplied summary; never copy Chinese JSON field names into the answer. "
+            "If a quarterly filing has both current-quarter and year-to-date figures, explicitly distinguish their reporting bases. "
+            "Distinguish explicit filing disclosures from analytical interpretations in the summary. "
             "Never claim to have read a filing that was not supplied. State uncertainty explicitly. "
             "Financial assessments are research assistance, not investment advice."
         )
     messages = [{"role": "system", "content": system_text}]
     if context:
-        messages.append({"role": "user", "content": f"当前公司上下文如下：\n{context}\n\n上下文状态：{source_note}"})
+        messages.append({"role": "user", "content": (f"Selected company context:\n{context}\n\nSource status: {source_note}" if english()
+                                                       else f"当前公司上下文如下：\n{context}\n\n上下文状态：{source_note}")})
     messages.extend(history)
-    messages.append({"role": "user", "content": re.sub(r"@([^\s，,。；;：:]+)", "", message or "", count=1).strip() or message})
+    _, question = resolve_chat_context(st.session_state.get("summaries") or [],
+                                       str(st.session_state.get("llm_active_company_key") or ""),
+                                       message, company_display_name)
+    messages.append({"role": "user", "content": question})
     return messages, source_note, display
 
 
@@ -1674,10 +1724,28 @@ def ask_general_llm(message: str) -> tuple[str, dict]:
 
 def stream_general_llm(message: str, prepared_messages: list[dict] | None = None):
     if st.session_state.get("ds_test_mode"):
-        yield "content", "当前为测试模式：这里会显示模型回复。关闭测试模式并填写 API Key 后即可正常对话。"
+        summary = _active_summary_from_message(message)
+        label = company_display_label(str(summary.get('company_name') or ''), str(summary.get('stock_code') or ''))
+        yield "content", (f"Demo mode: the selected filing context for {label} is available. Disable demo mode to ask the model about these materials."
+                          if english() else f"当前为测试模式，已载入 {label} 的财报上下文。关闭测试模式后即可调用模型分析这些材料。")
         return
     if not api_key.strip():
         raise RuntimeError("请先在右上角设置里填写 DeepSeek API Key，或在 .env 中配置管理员密钥。")
+    draft_key = hashlib.sha256((chat_scope(st.session_state, st.session_state.get('llm_active_company_key') or '') + '\0' + message).encode('utf-8')).hexdigest()
+    drafts = st.session_state.setdefault('llm_chat_answer_drafts', {})
+    language_cache = st.session_state.setdefault('llm_chat_translation_cache', {})
+    active_summary = _active_summary_from_message(message)
+    aliases = {str(active_summary.get('company_name') or ''): company_display_name(str(active_summary.get('company_name') or ''), str(active_summary.get('stock_code') or ''))}
+    def english_reply(raw):
+        return ensure_english_chat_reply(raw, api_key=api_key, model=model, base_url=base_url,
+                                         issuer_aliases=aliases, cache=language_cache)
+    if english() and draft_key in drafts:
+        yield 'translation', ''
+        cached = drafts[draft_key]
+        repaired = english_reply(cached['source'] if isinstance(cached, dict) else cached)
+        drafts.pop(draft_key, None)
+        yield 'replace', repaired
+        return
     timeout = httpx_runtime.Timeout(30.0, connect=10.0, read=20.0, write=20.0, pool=10.0)
     client = OpenAI(api_key=api_key, base_url=base_url, timeout=timeout, max_retries=0)
     messages = prepared_messages or build_llm_messages(message)[0]
@@ -1687,6 +1755,7 @@ def stream_general_llm(message: str, prepared_messages: list[dict] | None = None
         max_tokens=1600,
         messages=messages,
         stream=True,
+        **translation_api_options(model, base_url),
     )
     started_at = time.monotonic()
     reasoning_chars = 0
@@ -1706,157 +1775,39 @@ def stream_general_llm(message: str, prepared_messages: list[dict] | None = None
         if content:
             if english():
                 english_buffer.append(content)
+                if not re.search(r'[\u3400-\u9fff]', ''.join(english_buffer)):
+                    yield "content", content
             else:
                 yield "content", content
     if english_buffer:
-        yield "content", translate("".join(english_buffer))
+        raw = ''.join(english_buffer)
+        drafts[draft_key] = {'source': raw, 'scope': chat_scope(st.session_state, st.session_state.get('llm_active_company_key') or ''), 'question': message}
+        while len(drafts) > 24:
+            drafts.pop(next(iter(drafts)))
+        if re.search(r'[\u3400-\u9fff]', raw):
+            yield 'translation', ''
+            yield 'replace', english_reply(raw)
+        drafts.pop(draft_key, None)
 
 
 def render_llm_toggle() -> None:
     is_open = bool(st.session_state.get("llm_drawer_open"))
-    st.markdown(f'<div class="llm-drawer-state{" is-open" if is_open else ""}"></div>', unsafe_allow_html=True)
-    if st.button("‹" if is_open else "›", key="llm_drawer_toggle", help="展开/收回对话框"):
-        if is_open:
-            st.session_state.llm_drawer_open = False
-            st.session_state.llm_chat_messages = []
-            st.session_state.llm_active_company_key = ""
-            st.session_state.llm_chat_prefill = ""
-            st.session_state.llm_pending_prompt = ""
-            st.session_state.llm_last_status = ""
-            st.session_state.llm_ignore_prompt_once = ""
-            st.session_state.pop("llm_chat_input", None)
-        else:
-            st.session_state.llm_drawer_open = True
-        st.rerun()
+    native_st.markdown(f'<div class="llm-drawer-state{" is-open" if is_open else ""}"></div>', unsafe_allow_html=True)
+    with native_st.container(key="llm_chat_toggle", border=False):
+        if native_st.button("", icon=":material/chevron_right:" if is_open else ":material/chat_bubble_outline:",
+                            key="llm_drawer_toggle", help=("Close chat" if is_open else "Open chat") if english() else ("收起对话" if is_open else "打开对话")):
+            if is_open:
+                close_chat(st.session_state)
+            else:
+                open_chat(st.session_state)
+            st.rerun()
 
 
 def render_llm_panel() -> None:
-    st.markdown("<div class='llm-chat-root'></div>", unsafe_allow_html=True)
-    messages = list(st.session_state.get("llm_chat_messages") or [])[-40:]
-    pending_prompt = str(st.session_state.get("llm_pending_prompt") or "").strip()
-    stream_placeholder = None
-    active_summary = _active_summary_from_message("")
-    active_name = str(active_summary.get("company_name") or "").strip()
-    active_code = str(active_summary.get("stock_code") or "").strip()
-    active_label = company_display_label(active_name, active_code) if active_name or active_code else ("No company selected" if english() else "未选择公司")
-    assistant_title = "Research Assistant" if english() else "研究助手"
-    context_title = "Current context: " if english() else "当前上下文："
-    native_st.markdown(
-        f"<div class='llm-header'><div><div class='llm-title'>{assistant_title}</div>"
-        f"<div class='llm-subtitle'>{context_title}{escape(active_label)}</div></div>"
-        f"<div class='llm-badge'>{escape(model)}</div></div>",
-        unsafe_allow_html=True,
-    )
-    with st.container(border=False):
-        st.markdown("<div class='llm-transcript-anchor'></div>", unsafe_allow_html=True)
-        if not messages and not st.session_state.get("llm_pending_prompt"):
-            st.markdown(
-                "<div class='llm-empty'><div class='llm-empty-title'>我可以帮你读财报、拆业绩、找风险。</div>"
-                "<div class='llm-empty-sub'>点击快筛卡片右上角 👉 会自动带入公司和财报上下文；也可以直接输入问题。</div></div>",
-                unsafe_allow_html=True,
-            )
-        for item in messages:
-            role = str(item.get("role") or "pair")
-            token_note = ""
-            if item.get("input_tokens") or item.get("output_tokens"):
-                token_note = f" · {item.get('input_tokens', 0)} in / {item.get('output_tokens', 0)} out"
-            if role == "user":
-                st.markdown(
-                    "<div class='llm-msg user'>"
-                    f"{escape(str(item.get('content') or item.get('question') or '')).replace(chr(10), '<br>')}"
-                    "</div>",
-                    unsafe_allow_html=True,
-                )
-                continue
-            if role == "assistant":
-                st.markdown(
-                    f"<div class='llm-meta'>DeepSeek{escape(' · ' + str(item.get('company')) if item.get('company') else '')}{escape(token_note)}</div>",
-                    unsafe_allow_html=True,
-                )
-                st.markdown(str(item.get("content") or item.get("answer") or ""))
-                continue
-            st.markdown(
-                "<div class='llm-msg user'>"
-                f"{escape(str(item.get('question') or '')).replace(chr(10), '<br>')}"
-                "</div>",
-                unsafe_allow_html=True,
-            )
-            st.markdown(
-                f"<div class='llm-meta'>DeepSeek{escape(' · ' + str(item.get('company')) if item.get('company') else '')}{escape(token_note)}</div>",
-                unsafe_allow_html=True,
-            )
-            st.markdown(str(item.get("answer") or ""))
-        if pending_prompt:
-            st.markdown(
-                "<div class='llm-msg user'>"
-                f"{escape(pending_prompt).replace(chr(10), '<br>')}"
-                "</div>",
-                unsafe_allow_html=True,
-            )
-            stream_placeholder = st.empty()
-    last = messages[-1] if messages else {}
-    thinking_text = "模型正在阅读材料并生成回答……" if pending_prompt else "等待指令"
-    if last and not pending_prompt:
-        thinking_text = (
-            f"上次完成于 {escape(str(last.get('time') or ''))}"
-            f" · 输入 {int(last.get('input_tokens') or 0)} / 输出 {int(last.get('output_tokens') or 0)} tokens"
-        )
-    st.markdown(
-        f"<div class='llm-thinking'><span class='llm-thinking-dot'></span>{thinking_text}</div>",
-        unsafe_allow_html=True,
-    )
-    st.markdown("<div class='llm-input-marker'></div>", unsafe_allow_html=True)
-    prefill = str(st.session_state.pop("llm_chat_prefill", "") or "")
-    st.markdown(
-        f"<div class='llm-composer-head'><span class='llm-plus'>＋</span>"
-        f"<span class='llm-context-pill'>▦ {escape(active_label)}</span>"
-        f"<span class='llm-model-pill'>{escape(model)}</span></div>",
-        unsafe_allow_html=True,
-    )
-    prompt = st.chat_input(
-        placeholder=(prefill + "请输入问题…") if prefill else "Tell AI what to do next…",
-        key="llm_chat_input",
-        disabled=bool(pending_prompt),
-    )
-    if prompt and str(prompt).strip() and not pending_prompt:
-        st.session_state.llm_pending_prompt = str(prompt).strip()
-        st.rerun()
-    if pending_prompt and stream_placeholder is not None:
-        try:
-            prepared_messages, source_note, company_display = build_llm_messages(pending_prompt)
-            st.session_state.llm_last_status = source_note or "正在调用模型流式输出……"
-            answer_parts = []
-            for event_type, piece in stream_general_llm(pending_prompt, prepared_messages=prepared_messages):
-                if event_type == "thinking":
-                    if not answer_parts:
-                        stream_placeholder.info(f"模型正在思考，已处理约 {piece} 字推理过程……")
-                    continue
-                answer_parts.append(piece)
-                stream_placeholder.markdown("".join(answer_parts) + "▌")
-            answer = "".join(answer_parts).strip()
-            if not answer:
-                raise RuntimeError("接口没有返回有效内容，请稍后重试。")
-            st.session_state.llm_chat_messages.extend(
-                [
-                    {"role": "user", "content": pending_prompt, "time": datetime.now().strftime("%H:%M")},
-                    {
-                        "role": "assistant",
-                        "content": answer,
-                        "input_tokens": 0,
-                        "output_tokens": 0,
-                        "company": company_display,
-                        "source_note": source_note,
-                        "time": datetime.now().strftime("%H:%M"),
-                    },
-                ]
-            )
-        except Exception as error:
-            error_text = f"本轮回答失败：{type(error).__name__}: {error}"
-            stream_placeholder.error(error_text)
-            st.session_state.llm_last_status = error_text
-        finally:
-            st.session_state.llm_pending_prompt = ""
-        st.rerun()
+    open_chat(st.session_state)
+    render_chat_drawer(st.session_state, model=model, is_english=english(),
+                       summary=_active_summary_from_message(""), display_label=company_display_label,
+                       build_messages=build_llm_messages, stream_reply=stream_general_llm)
 
 
 def render_research_body(meta: dict, stage: str) -> None:
@@ -1896,9 +1847,6 @@ def render_research_body(meta: dict, stage: str) -> None:
         with right:
             st.markdown('<div class="research-reports-anchor"></div>', unsafe_allow_html=True)
             render_report_workspace()
-            if st.session_state.get("llm_drawer_open"):
-                with st.expander("研究助手", expanded=True):
-                    render_llm_panel()
     st.caption("研究结论附证据与研究边界；缺失材料会明确标注。输出仅供研究辅助。")
 
 
@@ -1954,16 +1902,10 @@ def render_research() -> None:
     elif st.session_state.get("summaries"):
         stage = "quick"
     render_stage_header(stage)
+    render_research_body(meta, stage)
     render_llm_toggle()
-    if st.session_state.get("llm_drawer_open") and stage == "screen":
-        st.markdown('<div class="llm-split-open"></div>', unsafe_allow_html=True)
-        main_col, chat_col = st.columns([2, 1], gap="large")
-        with main_col:
-            render_research_body(meta, stage)
-        with chat_col:
-            render_llm_panel()
-    else:
-        render_research_body(meta, stage)
+    if st.session_state.get("llm_drawer_open"):
+        render_llm_panel()
 
 
 if st.session_state.view == "research" and st.session_state.research_id:
