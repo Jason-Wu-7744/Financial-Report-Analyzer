@@ -134,3 +134,13 @@ def test_different_filing_periods_of_the_same_issuer_keep_separate_context_and_h
     assert state["llm_chat_messages"] == conversation(annual)
     select_chat_company(state, quarterly)
     assert state["llm_chat_messages"] == conversation(quarterly)
+
+
+def test_switching_back_restores_the_latest_80_messages_in_order():
+    state = session()
+    select_chat_company(state, "000089")
+    messages = [{"role": "user", "content": str(i)} for i in range(83)]
+    state["llm_chat_messages"] = messages
+    select_chat_company(state, "000554")
+    select_chat_company(state, "000089")
+    assert state["llm_chat_messages"] == messages[-80:]

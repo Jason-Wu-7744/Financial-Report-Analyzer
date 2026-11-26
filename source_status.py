@@ -16,8 +16,11 @@ def source_failure_message(item: dict, *, is_english: bool) -> str:
         return f"未取得正式财报全文，尚未运行摘要分析。{reason} 请核对报告期年份/类型，或稍后重试、上传原版 PDF。"
     period = {'一季度报告': 'First Quarter Report', '半年度报告': 'Interim Report',
               '三季度报告': 'Third Quarter Report', '年度报告': 'Annual Report'}.get(canonical.get('report_type'), 'report')
-    return (f"The official {canonical.get('report_year', '')} {period} PDF is unavailable for "
-            f"{canonical.get('stock_code', '')}. Summary analysis has not run. Check the reporting year/type, "
+    year = canonical.get('report_year')
+    report = f"{year} {period}" if year else period
+    stock_code = canonical.get('stock_code')
+    issuer = f" for {stock_code}" if stock_code else ""
+    return (f"The official {report} PDF is unavailable{issuer}. Summary analysis has not run. Check the reporting year/type, "
             "retry the source, or upload the original PDF. An older period is never substituted automatically.")
 
 

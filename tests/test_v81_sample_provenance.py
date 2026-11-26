@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 import pytest
 
 from sample_provenance import official_filing_url
@@ -26,3 +29,12 @@ def test_actual_sample_filing_links_are_allowed(url):
 ])
 def test_untrusted_or_non_direct_urls_never_render_as_official_links(url):
     assert official_filing_url(url) == ""
+
+
+def test_ready_samples_have_a_report_and_an_accepted_filing_link():
+    sample_dir = Path(__file__).resolve().parents[1] / "samples"
+    manifest = json.loads((sample_dir / "manifest.json").read_text(encoding="utf-8"))
+    for sample in manifest["samples"]:
+        if sample["status"] == "ready":
+            assert (sample_dir / sample["path"]).is_file(), sample["id"]
+            assert official_filing_url(sample["source_url"]), sample["id"]

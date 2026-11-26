@@ -60,7 +60,7 @@ Python 3.12 is the tested interpreter for this public snapshot.
 git clone https://github.com/Jason-Wu-7744/Financial-Report-Analyzer.git
 cd Financial-Report-Analyzer
 python -m venv .venv
-# Windows: .venv\Scripts\activate
+# Windows PowerShell: .\.venv\Scripts\Activate.ps1
 # macOS/Linux: source .venv/bin/activate
 python -m pip install -r requirements.txt
 ```
