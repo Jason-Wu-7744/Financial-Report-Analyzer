@@ -134,3 +134,12 @@ def test_manual_a_share_preflight_rejects_unavailable_period_before_analysis(tmp
     assert at.session_state['worklist'] == []
     assert at.session_state['summaries'] == []
     assert any('2026' in x.value for x in at.error)
+
+@pytest.mark.parametrize(('metadata', 'expected'), [
+    ({}, 'The official report PDF is unavailable.'),
+    ({'report_year': 2026}, 'The official 2026 report PDF is unavailable.'),
+    ({'stock_code': '002444'}, 'The official report PDF is unavailable for 002444.'),
+])
+def test_missing_pdf_message_with_partial_metadata(metadata, expected):
+    message = source_failure_message(metadata, is_english=True)
+    assert message.partition('. ')[0] + '.' == expected
