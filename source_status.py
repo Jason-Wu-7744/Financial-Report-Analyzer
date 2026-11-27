@@ -32,7 +32,7 @@ def localize_source_failure(item: dict) -> dict:
                   substance='No analysis: official report PDF unavailable.',
                   screening_note='Risk screening has not run because the source PDF is unavailable.',
                   message=source_failure_message(item, is_english=True), selected=False,
-                  language='en', canonical_result=dict(item))
+                  language='en', canonical_result=dict(item.get('canonical_result') or item))
     return result
 
 

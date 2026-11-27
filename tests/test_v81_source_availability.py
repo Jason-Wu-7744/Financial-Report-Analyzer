@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 import engine
 import i18n
-from source_status import source_unavailable, source_failure_message, download_failure_for
+from source_status import source_unavailable, source_failure_message, download_failure_for, localize_source_failure
 
 
 @pytest.fixture(autouse=True)
@@ -143,3 +143,11 @@ def test_manual_a_share_preflight_rejects_unavailable_period_before_analysis(tmp
 def test_missing_pdf_message_with_partial_metadata(metadata, expected):
     message = source_failure_message(metadata, is_english=True)
     assert message.partition('. ')[0] + '.' == expected
+
+
+def test_localizing_missing_pdf_twice_preserves_original_failure():
+    original = unavailable()
+    english = localize_source_failure(original)
+    repeated = localize_source_failure(english)
+    assert repeated == english
+    assert repeated['canonical_result'] == original
